@@ -47,11 +47,12 @@ RUN dnf install -y \
 	ninja-build \
 	patch \
 	userspace-rcu-devel \
-	xfsprogs-devel
+	xfsprogs-devel \
+	libacl-devel
 
 # Clone specific version of ganesha
 # Keep version in sync with .github/workflows/docker-build.yml
-ARG GANESHA_VERSION=V4.0.8
+ARG GANESHA_VERSION=V4.4.1
 RUN git clone --branch ${GANESHA_VERSION} --recurse-submodules https://github.com/nfs-ganesha/nfs-ganesha
 WORKDIR /nfs-ganesha
 RUN mkdir -p /usr/local \
