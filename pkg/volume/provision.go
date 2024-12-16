@@ -253,6 +253,10 @@ type volume struct {
 	mountOptions string
 }
 
+func (p *nfsProvisioner) getPVName(options controller.ProvisionOptions) string {
+	return strings.Join([]string{options.PVC.Namespace, options.PVC.Name, options.PVName}, "-")
+}
+
 // createVolume creates a volume i.e. the storage asset. It creates a unique
 // directory under /export and exports it. Returns the server IP, the path, a
 // zero/non-zero supplemental group, the block it added to either the ganesha
@@ -273,20 +277,20 @@ func (p *nfsProvisioner) createVolume(options controller.ProvisionOptions) (volu
 		return volume{}, &controller.IgnoredError{Reason: fmt.Sprintf("export limit of %v has been reached", p.maxExports)}
 	}
 
-	path := path.Join(p.exportDir, options.PVName)
+	path := path.Join(p.exportDir, p.getPVName(options))
 
-	err = p.createDirectory(options.PVName, gid)
+	err = p.createDirectory(path, gid)
 	if err != nil {
 		return volume{}, fmt.Errorf("error creating directory for volume: %v", err)
 	}
 
-	exportBlock, exportID, err := p.createExport(options.PVName, rootSquash)
+	exportBlock, exportID, err := p.createExport(path, rootSquash)
 	if err != nil {
 		os.RemoveAll(path)
 		return volume{}, fmt.Errorf("error creating export for volume: %v", err)
 	}
 
-	projectBlock, projectID, err := p.createQuota(options.PVName, options.PVC.Spec.Resources.Requests[v1.ResourceName(v1.ResourceStorage)])
+	projectBlock, projectID, err := p.createQuota(path, options.PVC.Spec.Resources.Requests[v1.ResourceName(v1.ResourceStorage)])
 	if err != nil {
 		os.RemoveAll(path)
 		return volume{}, fmt.Errorf("error creating quota for volume: %v", err)
@@ -457,9 +461,8 @@ func (p *nfsProvisioner) checkExportLimit() bool {
 
 // createDirectory creates the given directory in exportDir with appropriate
 // permissions and ownership according to the given gid parameter string.
-func (p *nfsProvisioner) createDirectory(directory, gid string) error {
+func (p *nfsProvisioner) createDirectory(path, gid string) error {
 	// TODO quotas
-	path := path.Join(p.exportDir, directory)
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		return fmt.Errorf("the path already exists")
 	}
@@ -497,9 +500,7 @@ func (p *nfsProvisioner) createDirectory(directory, gid string) error {
 
 // createExport creates the export by adding a block to the appropriate config
 // file and exporting it
-func (p *nfsProvisioner) createExport(directory string, rootSquash bool) (string, uint16, error) {
-	path := path.Join(p.exportDir, directory)
-
+func (p *nfsProvisioner) createExport(path string, rootSquash bool) (string, uint16, error) {
 	block, exportID, err := p.exporter.AddExportBlock(path, rootSquash, p.exportSubnet)
 	if err != nil {
 		return "", 0, fmt.Errorf("error adding export block for path %s: %v", path, err)
@@ -516,9 +517,7 @@ func (p *nfsProvisioner) createExport(directory string, rootSquash bool) (string
 
 // createQuota creates a quota for the directory by adding a project to
 // represent the directory and setting a quota on it
-func (p *nfsProvisioner) createQuota(directory string, capacity resource.Quantity) (string, uint16, error) {
-	path := path.Join(p.exportDir, directory)
-
+func (p *nfsProvisioner) createQuota(path string, capacity resource.Quantity) (string, uint16, error) {
 	limit := strconv.FormatInt(capacity.Value(), 10)
 
 	block, projectID, err := p.quotaer.AddProject(path, limit)
